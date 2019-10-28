@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Mianen.Maths
+namespace Mianen.MathTool
 {
   public static class BoolMath
   {

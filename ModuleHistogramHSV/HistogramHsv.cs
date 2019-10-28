@@ -1,5 +1,5 @@
 ﻿using MathSupport;
-using Mianen.Maths;
+using Mianen.MathTool;
 using Mianen.Utils;
 using System;
 using System.Collections.Generic;
