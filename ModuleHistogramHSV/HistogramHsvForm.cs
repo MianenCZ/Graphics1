@@ -1,4 +1,5 @@
-﻿using Modules;
+﻿using Mianen.Utilities;
+using Modules;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -49,6 +50,7 @@ namespace Mianen.Modules
 
     private void HistogramForm_Paint (object sender, PaintEventArgs e)
     {
+      this.label1.Text = ImageHistogramHsv.GetDescription();
       if (backBuffer == null)
       {
         e.Graphics.Clear(Color.White);

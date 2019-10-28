@@ -75,8 +75,12 @@ namespace Mianen.Utilities
 
         int hue = ImageHistogramHsvExist.OptimalHue;
         int saturation = ImageHistogramHsvExist.OptimalSaturation;
+
         Util.TryParse(rec, "Hue", ref hue);
+        RangeMath.InRangeOrDefault(ref hue, ImageHistogramHsvExist.MinHue, ImageHistogramHsvExist.MaxHue, ImageHistogramHsvExist.OptimalHue);
         Util.TryParse(rec, "Sat", ref saturation);
+        RangeMath.InRangeOrDefault(ref saturation, ImageHistogramHsvExist.MinSaturation, ImageHistogramHsvExist.MaxSaturation, ImageHistogramHsvExist.OptimalSaturation);
+
         if (rec.ContainsKey("Colors") && rec["Colors"] == "Dynamic")
         {
           ImageHistogramHsvExist.DynamicColors = true;
@@ -89,7 +93,7 @@ namespace Mianen.Utilities
         {
           ImageHistogramHsvExist.DynamicColors = true;
         }
-        ImageHistogramHsvExist.ComputeHistogram(input, hue, saturation);
+        ImageHistogramHsvExist.ComputeHistogram(input, hue, saturation+1);
       }
       else if (Histogram || Powers || Values)
       {
@@ -114,6 +118,7 @@ namespace Mianen.Utilities
         int hue = ImageHistogramHsvOcc.OptimalHue;
         float zoom = ImageHistogramHsvOcc.OptimalZoom;
         Util.TryParse(rec, "Hue", ref hue);
+        RangeMath.InRangeOrDefault(ref hue, ImageHistogramHsvOcc.MinHue, ImageHistogramHsvOcc.MaxHue, ImageHistogramHsvOcc.OptimalHue);
         if (!Util.TryParse(rec, "Zoom", ref zoom) && rec.ContainsKey("Zoom") && (rec["Zoom"] == "A" || rec["Zoom"] == "Auto"))
         {
           ImageHistogramHsvOcc.AutoZoom = true;
@@ -123,10 +128,47 @@ namespace Mianen.Utilities
           ImageHistogramHsvOcc.AutoZoom = false;
         }
         ImageHistogramHsvOcc.Zoom = zoom;
-        ImageHistogramHsvOcc.ComputeHistogram(input, mode, hue);
+        ImageHistogramHsvOcc.ComputeHistogram(input, mode, hue+1);
 
       }
     }
+
+    public static string GetDescription ()
+    {
+      switch (mode)
+      {
+        case ImageHistogramHsvMode.Distribution:
+        {
+          return
+            $"Description: Histogram in polar coordinates based on GSV color pallet" + "\n" +
+            $"Calculation: Ratio of occurrences for each Hue" + "\n" +
+            $"Zoom:        {ImageHistogramHsvOcc.Zoom}";
+        }
+        case ImageHistogramHsvMode.Power:
+        {
+          return
+            $"Description: Visualize visibility of specified Hue color" + "\n" +
+            $"Calculation: Sum of Values times Saturation for each Hue" + "\n" +
+            $"Zoom:        {ImageHistogramHsvOcc.Zoom}";
+        }
+        case ImageHistogramHsvMode.Standart:
+        {
+          return
+            $"Description: Visualize colors used in Input bitmap based on" + "\n" +
+            $"             HSV color pallet (Value part of HSV is discard)" + "\n" +
+            $"Calculation: Occurrence flag for each HS Color";
+        }
+        case ImageHistogramHsvMode.Vals:
+        {
+          return
+            $"Description: Visualize visibility of specified Hue color" + "\n" +
+            $"Calculation: Sum of Values for each Hue" + "\n" +
+            $"Zoom:        {ImageHistogramHsvOcc.Zoom}";
+        }
+        default: return "";
+      }
+    }
+    
   }
 
   internal class ImageHistogramHsvExist
@@ -137,7 +179,7 @@ namespace Mianen.Utilities
 
     public const int MaxHue = 5760;
     public const int OptimalHue = 360;
-    public const int MinHue = 8;
+    public const int MinHue = 1;
 
     public static bool DynamicColors = true;
 
@@ -258,7 +300,7 @@ namespace Mianen.Utilities
   {
     public const int MaxHue = 5760;
     public const int OptimalHue = 360;
-    public const int MinHue = 8;
+    public const int MinHue = 1;
     public const float OptimalZoom = 20f;
 
     public static float Zoom = OptimalZoom;
@@ -299,7 +341,7 @@ namespace Mianen.Utilities
       if (AutoZoom)
       {
         double Max = histArray.Max();
-        Zoom = 1.0f / (float)(Max / radius);
+        Zoom = (1.0f / (float)(Max))*0.95f;
 
       }
 
