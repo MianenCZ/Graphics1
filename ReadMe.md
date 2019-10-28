@@ -1,5 +1,5 @@
 # Introduction to Computer Graphics
-**Author:** Jiøí (Mianen) Pelc
+**Author:** Jiri (Mianen) Pelc
 
 **Department:** Department of Software and Computer Science Education
 
