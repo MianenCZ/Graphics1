@@ -1,4 +1,6 @@
-﻿using Mianen.Utils;
+﻿using MathSupport;
+using Mianen.MathTool;
+using Mianen.Utils;
 using Modules;
 using Raster;
 using System;
@@ -23,7 +25,7 @@ namespace Mianen.Modules
 
     public override string Name => "16M Colors";
 
-    public override string Tooltip => "[wid=<width>][,hei=<height>][,slow][,ignore-input][,seed]\nOn";
+    public override string Tooltip => "[scale][,slow][,low-mem]\n[wid=<width>][hei=<height>]\nOn low-mem is used my own Merge sort instead preimplemented quicksort";
 
     public override string Param
     {
@@ -51,7 +53,7 @@ namespace Mianen.Modules
     {
       this.Out = null;
       this.In = null;
-      this.param = "fast=true";
+      this.param = "scale,low-mem";
     }
 
     public override Bitmap GetOutput (int slot = 0)
@@ -66,43 +68,57 @@ namespace Mianen.Modules
 
     public override void Update ()
     {
+      Console.WriteLine("Update");
+
+      return;
+
+
+      bool scale = false;
+      bool fast = true;
+      bool lowmem = false;
+      int seed = 42;
+
       int wid = 4096;
       int hei = 4096;
-      bool fast = true;
-      bool ignoreInput = false;
-      int seed = 42;
 
       // We are not using 'paramDirty', so the 'Param' string has to be parsed every time.
       Dictionary<string, string> p = Util.ParseKeyValueList(param);
       if (p.Count > 0)
       {
-        // wid=<int> [image width in pixels]
-        if (Util.TryParse(p, "wid", ref wid))
-          wid = Math.Max(1, wid);
+        scale = p.ContainsKey("scale");
+        if (!scale)
+        {
+          if (Util.TryParse(p, "wid", ref wid))
+            wid = Math.Max(1, wid);
 
-        // hei=<int> [image height in pixels]
-        if (Util.TryParse(p, "hei", ref hei))
-          hei = Math.Max(1, wid);
+          // hei=<int> [image height in pixels]
+          if (Util.TryParse(p, "hei", ref hei))
+            hei = Math.Max(1, wid);
+        }
 
         // slow ... use Bitmap.SetPixel()
         fast = !p.ContainsKey("slow");
 
-        // ignore-input ... ignore input image even if it is present
-        ignoreInput = p.ContainsKey("ignore-input");
-
-        // no-check ... disable color check at the end
-        if (Util.TryParse(p, "seed", ref seed))
-          seed = 42;
+        lowmem = p.ContainsKey("low-mem");        
       }
-
-      if (ignoreInput)
+      Pixel[] inData = default;
+      int inHeight;
+      int inWidth;
+      if (scale)
       {
-        DrawNoImput(wid, hei, fast, seed);
+        inData = GetScaled(out inHeight, out inWidth);
       }
       else
       {
-        DrawFromImput(fast, seed);
+        inData = GetSized(hei, wid);
+        inHeight = hei;
+        inWidth = wid;
       }
+      DrawFromPixel(inData, inHeight, inWidth, fast, lowmem);
+
+
+      long colors = Draw.ColorNumber(this.Out);
+      message = colors == (1 << 24) ? "Colors: 16M, Ok" : $"Colors: {colors}, Fail";
     }
 
     /// <summary>
@@ -112,7 +128,9 @@ namespace Mianen.Modules
     /// <param name="slot">Slot number from 0 to OutputSlots-1.</param>
     public override string GetOutputMessage (
       int slot = 0) => message;
-  
+
+
+    /*
     private void DrawNoImput (int wid, int hei, bool fast, int seed)
     {
       if (wid * hei < (1 << 24))
@@ -204,37 +222,222 @@ namespace Mianen.Modules
 
       this.Out = bmp.Bitmap;
 
-      long colors = Draw.ColorNumber(this.Out);
-      message = colors == (1 << 24) ? "Colors: 16M, Ok" : $"Colors: {colors}, Fail";
+    }
+
+    //*/
+
+    private void DrawFromPixel (Pixel[] indata, int Height, int Width, bool fast, bool lowmem)
+    {
+
+      Pixel[] insort= default;
+      Color[] colsort = default;
+      if (fast && lowmem)
+      {
+        //insort = indata.AsParallel().WithDegreeOfParallelism(8).OrderBy(x => ColorScience.GetValue(x.Color)).ToArray();
+        //colsort = GetAll(In.Width * Scale * In.Height * Scale).AsParallel().WithDegreeOfParallelism(8).OrderBy(x => ColorScience.GetValue(x)).ToArray();
+
+        MultyThreadMergeSort<Pixel> sort = new MultyThreadMergeSort<Pixel>(indata, new PixelComparer(), 16);
+        sort.Sort();
+        colsort = GetAll(Width * Height);
+        MultyThreadMergeSort<Color> colorMS = new MultyThreadMergeSort<Color>(colsort, new ColorComparer(), 16);
+        colorMS.Sort();
+        insort = indata;
+      }
+      else if (fast && !lowmem)
+      {
+        insort = indata.AsParallel().WithDegreeOfParallelism(16).OrderBy(x => ColorScience.GetValue(x.Color)).ToArray();
+        colsort = GetAll(Width * Height).AsParallel().WithDegreeOfParallelism(16).OrderBy(x => ColorScience.GetValue(x)).ToArray();
+      }
+      else if (!fast && lowmem)
+      {
+        MultyThreadMergeSort<Pixel> sort = new MultyThreadMergeSort<Pixel>(indata, new PixelComparer(), 1);
+        sort.Sort();
+        colsort = GetAll(Width * Height);
+        MultyThreadMergeSort<Color> colorMS = new MultyThreadMergeSort<Color>(colsort, new ColorComparer(), 1);
+        colorMS.Sort();
+        insort = indata;
+      }
+      else if (!fast && !lowmem)
+      {
+        insort = indata.OrderBy(x => ColorScience.GetValue(x.Color)).ToArray();
+        colsort = GetAll(Width * Height).OrderBy(x => ColorScience.GetValue(x)).ToArray();
+      }
+      else
+      {
+        message = "I don't know how did you do that, but you are good crasher";
+        return;
+      }
+      
+      DirectBitmap bmp = new DirectBitmap(Width, Height);
+      Parallel.For(0, insort.Length, (i) => { bmp.SetPixel(insort[i].X, insort[i].Y, colsort[i]); });
+      this.Out = bmp.Bitmap;
+      insort = null;
+      colsort = null;
+      indata = null;
+      GC.Collect();
+
+    }
+
+    private Pixel[] GetScaled (out int Height, out int Width)
+    {
+      int size = In.Width * In.Height; //16*9
+      int Scale = 1;
+      if (size < (1 << 24))
+      {
+        double difq = (16777216.0)/size;
+        double dif = Math.Sqrt(difq);
+        Scale = (int)Math.Floor(dif) + 1;
+      }
+      Height = this.In.Height * Scale;
+      Width = this.In.Width * Scale;
+
+      Pixel[] indata = new Pixel[In.Width * Scale * In.Height * Scale];
+      int index = 0;
+
+      System.Drawing.Imaging.BitmapData inData =
+            In.LockBits(
+              new Rectangle(0, 0, In.Width, In.Height),
+              System.Drawing.Imaging.ImageLockMode.ReadOnly,
+              In.PixelFormat);
+
+      IntPtr ptr = inData.Scan0;
+
+      unsafe
+      {
+        byte* iptr;
+        byte ri, gi, bi;
+        int wi = In.Width;
+        int hi = In.Height;
+
+        for (int x = 0; x < wi; x++)
+        {
+          for (int y = 0; y < hi; y++)
+          {
+            iptr = (byte*)inData.Scan0 + ((y * inData.Width) + x) * 3;
+
+
+            bi = iptr[0];
+            gi = iptr[1];
+            ri = iptr[2];
+
+            for (int i = 0; i < Scale; i++)
+            {
+              for (int j = 0; j < Scale; j++)
+              {
+
+                indata[(x * hi + y) * Scale * Scale + i * Scale + j] = new Pixel
+                {
+                  X = x * Scale + i,
+                  Y = y * Scale + j,
+                  Color = Color.FromArgb(bi, gi, ri),
+                };
+              }
+            }
+          }
+        }
+      }
+      this.In.UnlockBits(inData);
+
+      return indata;
+    }
+
+    private Pixel[] GetSized (int Height,int Width)
+    {
+      Pixel[] indata = new Pixel[Height * Width];
+
+      System.Drawing.Imaging.BitmapData inData =
+            In.LockBits(
+              new Rectangle(0, 0, In.Width, In.Height),
+              System.Drawing.Imaging.ImageLockMode.ReadOnly,
+              In.PixelFormat);
+      
+      unsafe
+      {
+        byte* iptr;
+        byte ri, gi, bi;
+        for (int x = 0; x < Width; x++)
+        {
+          for (int y = 0; y < Height; y++)
+          {
+            iptr = (byte*)inData.Scan0 + (((y%In.Height) * inData.Width) + (x % In.Width)) * 3;
+
+
+            bi = iptr[0];
+            gi = iptr[1];
+            ri = iptr[2];
+
+            indata[y * Width + x] = new Pixel
+            {
+              X = x,
+              Y = y,
+              Color = Color.FromArgb(bi, gi, ri),
+            };
+          }
+        }
+      }
+      this.In.UnlockBits(inData);
+      return indata;
+
     }
 
     private Color[] GetAll (int Size)
-    {
-      Color[] all = new Color[Size];
-      int Counter = 0;
-      while (true)
       {
-        for (int r = 0; r < 256; r++)
+        Color[] all = new Color[Size];
+        int Counter = 0;
+
+        bool stable = true;
+        int fullcount = Size/(1<<24);
+        for (int ser = 0; ser < fullcount; ser++)
         {
-          for (int g = 0; g < 256; g++)
+          Parallel.For(0, 256, (r) => {
+            for (int g = 0; g < 256; g++)
+            {
+              for (int b = 0; b < 256; b++)
+              {
+                if (UserBreak)
+                {
+                  stable = false;
+                  return;
+                }
+                //Flat[x + WIDTH * (y + DEPTH * z)] = Original[x, y, z]
+                all[(ser * (1 << 24)) + b + 256 * (g + 256 * r)] = Color.FromArgb(r, g, b);
+              }
+            }
+          });
+        }
+
+
+        Counter += (1 << 24);
+
+        while (true)
+        {
+          for (int hue = 0; hue < 360; hue++)
           {
-            for (int b = 0; b < 256; b++)
+            for (float sa = 0.9f; sa < 1.0f; sa += 0.0002f)
             {
               if (UserBreak)
               {
                 return null;
               }
-
               if (Counter >= Size)
               {
                 return all;
               }
-              all[Counter] = Color.FromArgb(r, g, b);
+
+              Arith.HSVToRGB(hue, sa, 1, out double r, out double g, out double b);
+              all[Counter] = Color.FromArgb((int)r, (int)g, (int)b);
               Counter++;
+              Arith.HSVToRGB(hue, 1 - sa, 1, out r, out g, out b);
+              all[Counter] = Color.FromArgb((int)r, (int)g, (int)b);
+              Counter++;
+
+
             }
           }
         }
+
+
       }
-    }
+    
   }
 }

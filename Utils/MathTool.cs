@@ -1,5 +1,7 @@
-﻿using System;
+﻿using MathSupport;
+using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -149,6 +151,85 @@ namespace Mianen.MathTool
     {
       if (!IsInRange(Value, Lower, Upper))
         Value = Default;
+    }
+  }
+
+  public static class ColorScience
+  {
+    public static double GetHue (Color Color)
+    {
+      Arith.ColorToHSV(Color, out double h, out double s, out double v);
+      return h;
+    }
+    public static double GetSaturation (Color Color)
+    {
+      Arith.ColorToHSV(Color, out double h, out double s, out double v);
+      return s;
+    }
+    public static double GetPower (Color Color)
+    {
+      Arith.ColorToHSV(Color, out double h, out double s, out double v);
+      return s * v;
+    }
+    public static double GetValue (Color color)
+    {
+      int max = Math.Max(color.R, Math.Max(color.G, color.B));
+      return max / 255.0;
+    }
+
+    public static Color[] GetAll (int Size)
+    {
+
+      if (Size < (1 << 24))
+      {
+        throw new ArgumentException($"Size is not enough to create all colors");
+      }
+      Color[] all = new Color[Size];
+      int Counter = 0;
+
+      int fullcount = Size/(1<<24);
+      for (int ser = 0; ser < fullcount; ser++)
+      {
+        Parallel.For(0, 256, (r) =>
+        {
+          for (int g = 0; g < 256; g++)
+          {
+            for (int b = 0; b < 256; b++)
+            {
+              //Flat[x + WIDTH * (y + DEPTH * z)] = Original[x, y, z]
+              all[(ser * (1 << 24)) + b + 256 * (g + 256 * r)] = Color.FromArgb(r, g, b);
+            }
+          }
+        });
+      }
+
+
+      Counter += (1 << 24);
+
+      while (true)
+      {
+        for (int hue = 0; hue < 360; hue++)
+        {
+          for (float sa = 0.9f; sa < 1.0f; sa += 0.0002f)
+          {
+            if (Counter >= Size)
+            {
+              return all;
+            }
+
+            Arith.HSVToRGB(hue, sa, 1, out double r, out double g, out double b);
+            all[Counter] = Color.FromArgb((int)r, (int)g, (int)b);
+            Counter++;
+            Arith.HSVToRGB(hue, 1 - sa, 1, out r, out g, out b);
+            all[Counter] = Color.FromArgb((int)r, (int)g, (int)b);
+            Counter++;
+
+
+          }
+        }
+      }
+
+
     }
   }
 }
