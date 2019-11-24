@@ -47,13 +47,14 @@ namespace Mianen.Modules
     /// <summary>
     /// Output message (color check).
     /// </summary>
-    
+
 
     public Color16Module ()
     {
       this.Out = null;
       this.In = null;
       this.param = "scale,low-mem";
+      //this.param = "wid=4095,hei=4095,low-mem";
     }
 
     public override Bitmap GetOutput (int slot = 0)
@@ -68,15 +69,14 @@ namespace Mianen.Modules
 
     public override void Update ()
     {
-      Console.WriteLine("Update");
-
-      return;
-
+      if (this.Out is object)
+      {
+        this.Out.Dispose();
+      }
 
       bool scale = false;
       bool fast = true;
       bool lowmem = false;
-      int seed = 42;
 
       int wid = 4096;
       int hei = 4096;
@@ -99,7 +99,7 @@ namespace Mianen.Modules
         // slow ... use Bitmap.SetPixel()
         fast = !p.ContainsKey("slow");
 
-        lowmem = p.ContainsKey("low-mem");        
+        lowmem = p.ContainsKey("low-mem");
       }
       Pixel[] inData = default;
       int inHeight;
@@ -267,9 +267,10 @@ namespace Mianen.Modules
         message = "I don't know how did you do that, but you are good crasher";
         return;
       }
-      
+
       DirectBitmap bmp = new DirectBitmap(Width, Height);
       Parallel.For(0, insort.Length, (i) => { bmp.SetPixel(insort[i].X, insort[i].Y, colsort[i]); });
+
       this.Out = bmp.Bitmap;
       insort = null;
       colsort = null;
@@ -337,11 +338,13 @@ namespace Mianen.Modules
         }
       }
       this.In.UnlockBits(inData);
+      inData = null;
+      GC.Collect();
 
       return indata;
     }
 
-    private Pixel[] GetSized (int Height,int Width)
+    private Pixel[] GetSized (int Height, int Width)
     {
       Pixel[] indata = new Pixel[Height * Width];
 
@@ -350,7 +353,7 @@ namespace Mianen.Modules
               new Rectangle(0, 0, In.Width, In.Height),
               System.Drawing.Imaging.ImageLockMode.ReadOnly,
               In.PixelFormat);
-      
+
       unsafe
       {
         byte* iptr;
@@ -359,7 +362,7 @@ namespace Mianen.Modules
         {
           for (int y = 0; y < Height; y++)
           {
-            iptr = (byte*)inData.Scan0 + (((y%In.Height) * inData.Width) + (x % In.Width)) * 3;
+            iptr = (byte*)inData.Scan0 + (((y % In.Height) * inData.Width) + (x % In.Width)) * 3;
 
 
             bi = iptr[0];
@@ -376,68 +379,93 @@ namespace Mianen.Modules
         }
       }
       this.In.UnlockBits(inData);
+      inData = null;
+      GC.Collect();
       return indata;
 
     }
 
     private Color[] GetAll (int Size)
+    {
+      Color[] all = new Color[Size];
+      int Counter = 0;
+
+      bool stable = true;
+      int fullcount = Size/(1<<24);
+      for (int ser = 0; ser < fullcount; ser++)
       {
-        Color[] all = new Color[Size];
-        int Counter = 0;
-
-        bool stable = true;
-        int fullcount = Size/(1<<24);
-        for (int ser = 0; ser < fullcount; ser++)
+        Parallel.For(0, 256, (r) =>
         {
-          Parallel.For(0, 256, (r) => {
-            for (int g = 0; g < 256; g++)
-            {
-              for (int b = 0; b < 256; b++)
-              {
-                if (UserBreak)
-                {
-                  stable = false;
-                  return;
-                }
-                //Flat[x + WIDTH * (y + DEPTH * z)] = Original[x, y, z]
-                all[(ser * (1 << 24)) + b + 256 * (g + 256 * r)] = Color.FromArgb(r, g, b);
-              }
-            }
-          });
-        }
-
-
-        Counter += (1 << 24);
-
-        while (true)
-        {
-          for (int hue = 0; hue < 360; hue++)
+          for (int g = 0; g < 256; g++)
           {
-            for (float sa = 0.9f; sa < 1.0f; sa += 0.0002f)
+            for (int b = 0; b < 256; b++)
             {
               if (UserBreak)
               {
-                return null;
+                stable = false;
+                return;
               }
-              if (Counter >= Size)
-              {
-                return all;
-              }
-
-              Arith.HSVToRGB(hue, sa, 1, out double r, out double g, out double b);
-              all[Counter] = Color.FromArgb((int)r, (int)g, (int)b);
-              Counter++;
-              Arith.HSVToRGB(hue, 1 - sa, 1, out r, out g, out b);
-              all[Counter] = Color.FromArgb((int)r, (int)g, (int)b);
-              Counter++;
-
-
+              //Flat[x + WIDTH * (y + DEPTH * z)] = Original[x, y, z]
+              all[(ser * (1 << 24)) + b + 256 * (g + 256 * r)] = Color.FromArgb(r, g, b);
             }
           }
-        }
-
-
+        });
       }
-    
+
+
+      Counter += fullcount * (1 << 24);
+
+      if (fullcount > 0)
+      {
+        bool run = true;
+        while (run)
+        {
+          all[Counter] = Color.FromArgb(0,0,0);
+          Counter++;
+
+          if (Counter >= Size)
+          {
+            run = false;
+            return all;
+          }
+        }
+      }
+      while (true)
+      {
+        for (int hue = 0; hue < 360; hue++)
+        {
+          for (float va = 0.6f; va < 1.0f; va += 0.0002f)
+          {
+            if (UserBreak)
+            {
+              return null;
+            }
+
+            Arith.HSVToRGB(hue, 1, va, out double r, out double g, out double b);
+            all[Counter] = Color.FromArgb((int)(r * 255), (int)(g * 255), (int)(b * 255));
+            //Console.WriteLine(all[Counter]);
+            Counter++;
+
+            if (Counter >= Size)
+            {
+              return all;
+            }
+            Arith.HSVToRGB(hue, 1, 1 - va, out r, out g, out b);
+            all[Counter] = Color.FromArgb((int)(r * 255), (int)(g * 255), (int)(b * 255));
+            //Console.WriteLine(all[Counter]);
+            Counter++;
+            if (Counter >= Size)
+            {
+              return all;
+            }
+
+
+          }
+        }
+      }
+
+
+    }
+
   }
 }
